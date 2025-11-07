@@ -243,7 +243,7 @@ fn display_server_info(successful_bindings: &[IpAddr], port: u16, pasv_range: &s
     println!("👤 Username: {}", username);
     println!("🔑 Password: {}", password);
     println!("🔒 Passive ports: {} to {}", pasv_range.start(), pasv_range.end());
-    println!("ℹ️  Make sure to forward the passive port range in your firewall/router if needed.");
+    println!("ℹ️  Make sure to forward the main and passive port range in your firewall/router if needed.");
     println!("\n💡 Connect using any FTP client with the displayed addresses");
     println!("   Press Ctrl+C to stop the server\n");
 }
