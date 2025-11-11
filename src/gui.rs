@@ -58,7 +58,7 @@ impl Default for SixFtpGui {
 }
 
 struct ServerHandle {
-    runtime: Runtime,
+    _runtime: Runtime,
     server_tasks: Vec<tokio::task::JoinHandle<()>>,
 }
 
@@ -196,7 +196,7 @@ impl SixFtpGui {
         }
 
         let handle = ServerHandle {
-            runtime,
+            _runtime: runtime,
             server_tasks,
         };
 
