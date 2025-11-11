@@ -1,5 +1,5 @@
-// Hide console window on Windows (we'll allocate one manually for CLI mode)
-#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+// Hide console window on Windows for GUI mode only
+#![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 
 use anyhow::Result;
 use clap::Parser;
@@ -8,6 +8,9 @@ use std::net::IpAddr;
 use std::path::PathBuf;
 use tracing::{info, error};
 use std::env;
+
+#[cfg(windows)]
+use windows::Win32::System::Console::{AllocConsole, AttachConsole, ATTACH_PARENT_PROCESS};
 
 mod gui;
 mod network_info;
@@ -48,12 +51,15 @@ async fn main() -> Result<()> {
     // Check if any command line arguments were provided
     let args: Vec<String> = env::args().collect();
 
-    // If CLI mode (args present), allocate a console on Windows
+    // If command-line arguments are provided (CLI mode), allocate/attach a console on Windows
     #[cfg(windows)]
     if args.len() > 1 {
         unsafe {
-            use winapi::um::consoleapi::AllocConsole;
-            AllocConsole();
+            // Try to attach to parent process console first (if launched from cmd/powershell)
+            if AttachConsole(ATTACH_PARENT_PROCESS).is_err() {
+                // If no parent console, allocate a new one
+                let _ = AllocConsole();
+            }
         }
     }
 

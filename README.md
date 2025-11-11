@@ -4,8 +4,8 @@ A simple, portable FTP server written in Rust with full IPv6 support using the l
 
 ## Features
 
-- **IPv6 & IPv4 dual-stack support** - perfect for IPoE and IPv6-only networks
-- **Command-line interface** with sensible defaults
+- **Dual Interface Modes** - GUI & CLI mode
+- **IPv6 & IPv4 dual-stack support** - perfect for IPoE/IPv6-only networks
 - **Portable** - single executable with no dependencies
 - **Configurable** - directory, username, password, ports, and bind address
 - **Network interface detection** - automatically displays all available IP addresses
@@ -13,11 +13,30 @@ A simple, portable FTP server written in Rust with full IPv6 support using the l
 
 ## Usage
 
-### Basic Usage
+### Dual Mode Operation
+
+SixFTP automatically switches between GUI and CLI modes based on command line arguments:
+
+- **GUI Mode** (no arguments): Launches a graphical interface
+- **CLI Mode** (with arguments): Runs as a command-line server
+
+### GUI Mode
 
 ```bash
-# Serve current directory with default settings
+# Launch the GUI interface (no arguments needed)
 sixftp
+```
+
+The GUI provides:
+- Visual configuration
+- Easy start/stop controls
+- Copy-paste friendly connection information
+
+### CLI Mode
+
+```bash
+# Serve current directory with default settings (CLI mode)
+sixftp -d .
 
 # Serve a specific directory
 sixftp -d /path/to/directory
@@ -41,14 +60,14 @@ sixftp -b 127.0.0.1
 -d, --directory <DIRECTORY>    Directory to serve via FTP [default: .]
 -u, --username <USERNAME>      FTP username [default: user]
     --password <PASSWORD>      FTP password [default: password]
--p, --port <PORT>              Main FTP port [default: 2121]
-    --pasv-range <PASV_RANGE>  Passive port range (format: start-end) [default: 30000-30010]
+-p, --port <PORT>              Main FTP port [default: 9000]
+    --pasv-range <PASV_RANGE>  Passive port range (format: start-end) [default: 30000-30100]
 -b, --bind <BIND>              Bind address [default: 0.0.0.0]
 -h, --help                     Print help
 -V, --version                  Print version
 ```
 
-### Example: Full Custom Configuration
+### Example: Full Custom Configuration (CLI Mode)
 
 ```bash
 sixftp \
@@ -71,13 +90,13 @@ sixftp \
 
 ```bash
 # Clone the repository
-git clone <repository-url>
-cd SixFtp
+git clone https://github.com/nemasu/SixFTP
+cd SixFTP
 
 # Build in debug mode
 cargo build
 
-# Build in release mode (recommended for production)
+# Build in release mode
 cargo build --release
 
 # The executable will be in target/debug/sixftp or target/release/sixftp
@@ -103,6 +122,15 @@ ftp 192.168.1.100 21212
 - **WinSCP**: Use FTP protocol with the displayed IP and port
 - **Any other FTP client**: Use the connection information displayed when the server starts
 
+### GUI Features
+
+When running in GUI mode, you can:
+
+1. **Configure Server Settings**: Set directory, credentials, ports, and bind address
+2. **Start/Stop Server**: Control server operation with visual buttons
+3. **View Connection Info**: See all connection details for easy copy-paste
+4. **Status**: See server status and binding information
+
 ### Default Credentials
 
 - **Username**: `user`
@@ -112,7 +140,7 @@ ftp 192.168.1.100 21212
 
 ### Firewall Considerations
 
-If you're running the server on Windows, you may need to allow the application through the firewall:
+You may need to allow the application through the firewall:
 
 1. Open Windows Defender Firewall
 2. Click "Allow an app or feature through Windows Defender Firewall"
@@ -135,7 +163,7 @@ If you want to access the server from outside your local network:
    - Check if the port is already in use
 
 2. **Can't connect from other devices**
-   - Ensure the server is bound to `0.0.0.0` (default)
+   - Try binding on IP used to access internet
    - Check firewall settings
    - Verify network connectivity
 

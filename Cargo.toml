@@ -21,4 +21,4 @@ iced = "0.13.1"
 
 # Windows-specific dependencies for console management
 [target.'cfg(windows)'.dependencies]
-winapi = { version = "0.3", features = ["consoleapi"] }
+windows = { version = "0.58", features = ["Win32_System_Console"] }
