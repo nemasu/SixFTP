@@ -362,7 +362,7 @@ pub fn view(state: &SixFtpGui) -> Element<'_, Message> {
                 .padding(10)
         ]
         .spacing(3)
-        .width(Length::FillPortion(20)),
+        .width(Length::Fill),
         column![
             text("Passive Port Range:"),
             text_input("Passive Port Range", &state.pasv_range)
@@ -370,7 +370,7 @@ pub fn view(state: &SixFtpGui) -> Element<'_, Message> {
                 .padding(10)
         ]
         .spacing(3)
-        .width(Length::FillPortion(40)),
+        .width(Length::Fill),
         column![
             text("Bind Address:"),
             text_input("Bind Address", &state.bind_address)
@@ -378,7 +378,7 @@ pub fn view(state: &SixFtpGui) -> Element<'_, Message> {
                 .padding(10)
         ]
         .spacing(3)
-        .width(Length::FillPortion(40))
+        .width(Length::Fill)
     ].spacing(15);
 
     let server_control = if state.server_running {
@@ -395,11 +395,12 @@ pub fn view(state: &SixFtpGui) -> Element<'_, Message> {
                 text_editor(&state.server_info)
                     .on_action(Message::ServerInfoEdited)
             )
-            .height(570.0)
+            .height(Length::Fill)
             .width(Length::Fill)
         )
         .padding(10)
         .width(Length::Fill)
+        .height(Length::Fill)
 
     } else {
         container(
@@ -407,11 +408,12 @@ pub fn view(state: &SixFtpGui) -> Element<'_, Message> {
                 text_editor(&state.server_status_content)
                     .on_action(Message::ServerInfoEdited)
             )
-            .height(570.0)
+            .height(Length::Fill)
             .width(Length::Fill)
         )
         .padding(10)
         .width(Length::Fill)
+        .height(Length::Fill)
 
     };
 
@@ -435,7 +437,9 @@ pub fn view(state: &SixFtpGui) -> Element<'_, Message> {
         status_box
     ]
     .spacing(0)
-    .padding(20);
+    .padding(20)
+    .width(Length::Fill)
+    .height(Length::Fill);
 
     container(content)
         .width(Length::Fill)
