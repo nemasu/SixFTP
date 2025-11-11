@@ -1,9 +1,18 @@
+// Hide console window on Windows (we'll allocate one manually for CLI mode)
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+
 use anyhow::Result;
 use clap::Parser;
 use unftp_sbe_fs::ServerExt;
 use std::net::IpAddr;
 use std::path::PathBuf;
 use tracing::{info, error};
+use std::env;
+
+mod gui;
+mod network_info;
+
+
 
 /// A simple portable FTP server
 #[derive(Parser, Debug)]
@@ -36,35 +45,42 @@ struct Args {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    // Initialize logging
-    tracing_subscriber::fmt::init();
+    // Check if any command line arguments were provided
+    let args: Vec<String> = env::args().collect();
 
-    // Parse command line arguments
-    let args = Args::parse();
-
-    // Validate and parse passive port range
-    let pasv_range = parse_pasv_range(&args.pasv_range)?;
-
-    info!("Starting SixFTP server with passive port range: {} to {}", pasv_range.start(), pasv_range.end());
-
-    // Validate directory exists
-    if !args.directory.exists() {
-        return Err(anyhow::anyhow!("Directory '{}' does not exist", args.directory.display()));
+    // If CLI mode (args present), allocate a console on Windows
+    #[cfg(windows)]
+    if args.len() > 1 {
+        unsafe {
+            use winapi::um::consoleapi::AllocConsole;
+            AllocConsole();
+        }
     }
 
-    // Parse bind address
-    let bind_addr: IpAddr = args.bind.parse()?;
+    // Initialize logging with custom configuration
+    // If RUST_LOG=debug is set, show all logs
+    // Otherwise, show our app logs and libunftp logs at INFO level
+    use tracing_subscriber::{EnvFilter, fmt};
 
-    // Try to bind to all interfaces (IPv4 and IPv6)
-    let successful_bindings = start_ftp_server(&args.directory, args.port, &bind_addr, &pasv_range).await?;
+    let filter = EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| {
+            // Default filter: show our app's logs and libunftp logs at INFO level and above,
+            // suppress other library logs unless they are ERROR
+            EnvFilter::new("sixftp=info,libunftp=info,error")
+        });
 
-    // Display server information with successful bindings
-    display_server_info(&successful_bindings, args.port, &pasv_range, &args.directory, &args.username, &args.password);
+    fmt()
+        .with_env_filter(filter)
+        .init();
 
-    // Wait for all servers to finish
-    tokio::time::sleep(tokio::time::Duration::from_secs(u64::MAX)).await;
+    // If no arguments provided (only program name), launch GUI
+    // If any arguments are present (including -h for help), use CLI
+    if args.len() == 1 {
+        return run_gui_mode().await;
+    }
 
-    Ok(())
+    // Run CLI mode
+    run_cli_mode().await
 }
 
 async fn start_ftp_server(directory: &PathBuf, port: u16, bind_addr: &IpAddr, pasv_range: &std::ops::RangeInclusive<u16>) -> Result<Vec<IpAddr>> {
@@ -170,6 +186,8 @@ async fn start_ftp_server(directory: &PathBuf, port: u16, bind_addr: &IpAddr, pa
         return Err(anyhow::anyhow!("Failed to bind to any address on port {}", port));
     }
 
+    info!("FTP server started successfully on {} address(es)", successful_bindings.len());
+
     Ok(successful_bindings)
 }
 
@@ -194,190 +212,65 @@ fn parse_pasv_range(range_str: &str) -> Result<std::ops::RangeInclusive<u16>> {
 }
 
 fn display_server_info(successful_bindings: &[IpAddr], port: u16, pasv_range: &std::ops::RangeInclusive<u16>, directory: &PathBuf, username: &str, password: &str) {
-    println!("SixFTP Server Started");
-    println!("==========================");
+    let server_info = network_info::ServerInfo {
+        successful_bindings: successful_bindings.to_vec(),
+        port,
+        pasv_range: pasv_range.clone(),
+        directory: directory.clone(),
+        username: username.to_string(),
+        password: password.to_string(),
+    };
     
-    // Display successful listening addresses
-    println!("📡 Successfully bound to:");
-    
-    for bind_addr in successful_bindings {
-        if bind_addr.is_ipv6() {
-            println!("   - ftp://{}:{}@[{}]:{}", username, password, bind_addr, port);
-        } else {
-            println!("   - ftp://{}:{}@{}:{}", username, password, bind_addr, port);
-        }
-    }
-    
-    // Show actual network addresses for clients to use
-    if let Ok(network_ips) = get_network_ips() {
-        if !network_ips.ipv4.is_empty() || !network_ips.ipv6.is_empty() {
-            println!("\n🌐 Available network addresses:");
-            
-            // Show IPv4 addresses
-            for ip in &network_ips.ipv4 {
-                println!("   - ftp://{}:{}@{}:{}", username, password, ip, port);
-            }
-            
-            // Show IPv6 addresses with temporary address detection
-            for ip in &network_ips.ipv6 {
-                let segments = ip.segments();
-                let is_global = segments[0] >= 0x2000 && segments[0] <= 0x3FFF;
-                let is_unique_local = segments[0] >= 0xFC00 && segments[0] <= 0xFDFF;
-                
-                if is_global {
-                    if is_temporary_ipv6(ip) {
-                        println!("   - ftp://{}:{}@[{}]:{} (temporary)", username, password, ip, port);
-                    } else {
-                        println!("   - ftp://{}:{}@[{}]:{} (public)", username, password, ip, port);
-                    }
-                } else if is_unique_local {
-                    println!("   - ftp://{}:{}@[{}]:{} (private)", username, password, ip, port);
-                } else {
-                    println!("   - ftp://{}:{}@[{}]:{}", username, password, ip, port);
-                }
-            }
-        }
-    }
-    
-    println!("\n📁 Serving directory: {}", directory.display());
-    println!("👤 Username: {}", username);
-    println!("🔑 Password: {}", password);
-    println!("🔒 Passive ports: {} to {}", pasv_range.start(), pasv_range.end());
-    println!("ℹ️  Make sure to forward the main and passive port range in your firewall/router if needed.");
-    println!("\n💡 Connect using any FTP client with the displayed addresses");
+    println!("{}", server_info.format_display_info());
     println!("   Press Ctrl+C to stop the server\n");
 }
 
-struct NetworkIps {
-    ipv4: Vec<std::net::Ipv4Addr>,
-    ipv6: Vec<std::net::Ipv6Addr>,
+
+
+/// Run the GUI version of the FTP server
+async fn run_gui_mode() -> Result<()> {
+    info!("Starting SixFTP GUI mode");
+    
+    // Run the GUI application
+    if let Err(e) = gui::run_gui() {
+        error!("GUI error: {}", e);
+        return Err(anyhow::anyhow!("GUI failed to start: {}", e));
+    }
+    
+    Ok(())
 }
 
-fn get_network_ips() -> Result<NetworkIps> {
-    let mut ipv4_ips = Vec::new();
-    let mut ipv6_ips = Vec::new();
+/// Run the CLI version of the FTP server
+async fn run_cli_mode() -> Result<()> {
+    info!("Starting SixFTP CLI mode");
     
-    // Add localhost addresses
-    ipv4_ips.push(std::net::Ipv4Addr::new(127, 0, 0, 1));
-    ipv6_ips.push(std::net::Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 1));
-    
-    // Try to get network interface IPs
-    if let Ok(interfaces) = local_ip_address::list_afinet_netifas() {
-        for (_, ip) in interfaces {
-            match ip {
-                std::net::IpAddr::V4(ipv4) => {
-                    // Skip loopback and link-local addresses for public display
-                    if !ipv4.is_loopback() && !ipv4.is_link_local() {
-                        ipv4_ips.push(ipv4);
-                    }
-                }
-                std::net::IpAddr::V6(ipv6) => {
-                    // For IPv6, we want to show:
-                    // - Global unicast addresses (public IPv6) - starts with 2000::/3
-                    // - Unique local addresses (private IPv6) - starts with fc00::/7
-                    // Skip link-local (fe80::/10) and loopback
-                    if !ipv6.is_loopback() && !ipv6.is_unspecified() {
-                        let segments = ipv6.segments();
-                        // Check for global unicast (2000::/3)
-                        let is_global = segments[0] >= 0x2000 && segments[0] <= 0x3FFF;
-                        // Check for unique local (fc00::/7) 
-                        let is_unique_local = segments[0] >= 0xFC00 && segments[0] <= 0xFDFF;
-                        // Check for link-local (fe80::/10)
-                        let is_link_local = segments[0] >= 0xFE80 && segments[0] <= 0xFEBF;
-                        
-                        if (is_global || is_unique_local) && !is_link_local {
-                            ipv6_ips.push(ipv6);
-                        }
-                    }
-                }
-            }
-        }
-    }
-    
-    // If no IPv6 addresses found, try to get them from system interfaces
-    if ipv6_ips.len() <= 1 { // Only localhost
-        if let Ok(interfaces) = get_ipv6_interfaces() {
-            for ipv6 in interfaces {
-                if !ipv6_ips.contains(&ipv6) {
-                    ipv6_ips.push(ipv6);
-                }
-            }
-        }
-    }
-    
-    Ok(NetworkIps {
-        ipv4: ipv4_ips,
-        ipv6: ipv6_ips,
-    })
-}
+    // Parse command line arguments for CLI mode
+    let args = Args::parse();
 
-fn get_ipv6_interfaces() -> Result<Vec<std::net::Ipv6Addr>> {
-    use std::net::UdpSocket;
-    
-    let mut ipv6_addresses = Vec::new();
-    
-    // Try to create a UDP socket to detect available IPv6 interfaces
-    if let Ok(socket) = UdpSocket::bind("[::]:0") {
-        // Get the local address of the socket
-        if let Ok(local_addr) = socket.local_addr() {
-            if let std::net::IpAddr::V6(ipv6) = local_addr.ip() {
-                if !ipv6.is_loopback() && !ipv6.is_unspecified() {
-                    ipv6_addresses.push(ipv6);
-                }
-            }
-        }
-    }
-    
-    // Also try to get IPv6 addresses from network interfaces
-    if let Ok(interfaces) = local_ip_address::list_afinet_netifas() {
-        for (_, ip) in interfaces {
-            if let std::net::IpAddr::V6(ipv6) = ip {
-                // Include global unicast (public) and unique local (private) IPv6 addresses
-                let segments = ipv6.segments();
-                let is_global = segments[0] >= 0x2000 && segments[0] <= 0x3FFF;
-                let is_unique_local = segments[0] >= 0xFC00 && segments[0] <= 0xFDFF;
-                let is_link_local = segments[0] >= 0xFE80 && segments[0] <= 0xFEBF;
-                
-                if (is_global || is_unique_local) && 
-                   !ipv6.is_loopback() && !ipv6.is_unspecified() && !is_link_local {
-                    if !ipv6_addresses.contains(&ipv6) {
-                        ipv6_addresses.push(ipv6);
-                    }
-                }
-            }
-        }
-    }
-    
-    Ok(ipv6_addresses)
-}
+    // Validate and parse passive port range
+    let pasv_range = parse_pasv_range(&args.pasv_range)?;
 
-/// Check if an IPv6 address is a temporary address (privacy extension)
-/// Temporary addresses have the universal/local bit (bit 6) set to 1
-/// This indicates they were generated by privacy extensions rather than from MAC addresses
-fn is_temporary_ipv6(ipv6: &std::net::Ipv6Addr) -> bool {
-    let segments = ipv6.segments();
-    
-    // For IPv6 addresses, the interface identifier is the last 64 bits
-    // The universal/local bit is bit 6 (counting from 0) in the interface identifier
-    // In the last segment (segments[7]), this is bit 6 of the 16-bit value
-    
-    // Check if this is a global unicast address (starts with 2000::/3)
-    let is_global_unicast = segments[0] >= 0x2000 && segments[0] <= 0x3FFF;
-    
-    if !is_global_unicast {
-        return false;
+    info!("Starting SixFTP server with passive port range: {} to {}", pasv_range.start(), pasv_range.end());
+
+    // Validate directory exists
+    if !args.directory.exists() {
+        return Err(anyhow::anyhow!("Directory '{}' does not exist", args.directory.display()));
     }
-    
-    // Extract the interface identifier (last 64 bits)
-    let interface_id = ((segments[4] as u64) << 48) |
-                      ((segments[5] as u64) << 32) |
-                      ((segments[6] as u64) << 16) |
-                      (segments[7] as u64);
-    
-    // The universal/local bit is bit 6 (counting from 0) in the interface identifier
-    // This corresponds to position 70 in the full 128-bit IPv6 address
-    let universal_local_bit = (interface_id >> 57) & 0x1;
-    
-    // Temporary addresses have the universal/local bit set to 1
-    universal_local_bit == 1
+
+    // Parse bind address (strip brackets from IPv6 addresses if present)
+    let bind_address_cleaned = args.bind.trim()
+        .trim_start_matches('[')
+        .trim_end_matches(']');
+    let bind_addr: IpAddr = bind_address_cleaned.parse()?;
+
+    // Try to bind to all interfaces (IPv4 and IPv6)
+    let successful_bindings = start_ftp_server(&args.directory, args.port, &bind_addr, &pasv_range).await?;
+
+    // Display server information with successful bindings
+    display_server_info(&successful_bindings, args.port, &pasv_range, &args.directory, &args.username, &args.password);
+
+    // Wait for all servers to finish
+    tokio::time::sleep(tokio::time::Duration::from_secs(u64::MAX)).await;
+
+    Ok(())
 }
